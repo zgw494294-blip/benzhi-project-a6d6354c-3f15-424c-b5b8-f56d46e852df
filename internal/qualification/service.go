@@ -3,7 +3,9 @@ package qualification
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"seed-vigor-gate/internal/domain"
 	"seed-vigor-gate/internal/protocol"
@@ -15,11 +17,19 @@ import (
 type mutation func(*domain.Aggregate) (domain.Event, string, error)
 
 func (s *Service) Create(ctx context.Context, key string, command CreateCommand) (store.Receipt, error) {
+	if strings.TrimSpace(key) == "" {
+		return store.Receipt{}, domain.Invalid("Idempotency-Key 不能为空", nil)
+	}
+	payloadDigest := commandDigest(command)
 	if old, ok := s.repository.LookupReceipt(ctx, key); ok {
 		if strings.TrimSpace(command.ID) != "" && old.AssessmentID != command.ID {
-			return store.Receipt{}, domain.Invalid("Idempotency-Key 已用于其他评定", map[string]string{"idempotencyKey": key})
+			return store.Receipt{}, domain.IdempotencyConflict(key, old.EventType, domain.EventAssessmentCreated)
 		}
-		return old, nil
+		if replay, err := replayReceipt(old, domain.EventAssessmentCreated, payloadDigest); err != nil {
+			return store.Receipt{}, err
+		} else {
+			return replay, nil
+		}
 	}
 	if strings.TrimSpace(command.ID) == "" {
 		command.ID = newID("asg")
@@ -28,11 +38,11 @@ func (s *Service) Create(ctx context.Context, key string, command CreateCommand)
 	if err != nil {
 		return store.Receipt{}, err
 	}
-	return s.repository.Append(ctx, command.ID, 0, key, event, "")
+	return s.repository.AppendCommand(ctx, command.ID, 0, key, payloadDigest, event, "")
 }
 
 func (s *Service) FreezeProtocol(ctx context.Context, id, key string, command FreezeProtocolCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventProtocolFrozen, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		snapshot, issues, err := s.engine.PrepareSnapshot(command.Snapshot(), a.Assessment.SubmittedQuantity)
 		if err != nil {
 			return domain.Event{}, "", err
@@ -46,7 +56,7 @@ func (s *Service) FreezeProtocol(ctx context.Context, id, key string, command Fr
 }
 
 func (s *Service) PlaceReplicates(ctx context.Context, id, key string, command PlaceReplicatesCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventReplicatesPlaced, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		values := make([]domain.Replicate, 0, len(command.Replicates))
 		for _, input := range command.Replicates {
 			values = append(values, domain.Replicate{ID: input.ID, Label: input.Label, SownQuantity: input.SownQuantity, StartedAt: input.StartedAt})
@@ -57,14 +67,14 @@ func (s *Service) PlaceReplicates(ctx context.Context, id, key string, command P
 }
 
 func (s *Service) Start(ctx context.Context, id, key string, command StartCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventObservationStarted, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		event, err := a.StartObservation(s.clock.Now())
 		return event, "", err
 	})
 }
 
 func (s *Service) RecordObservation(ctx context.Context, id, key string, command RecordObservationCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventObservationRecorded, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		observationID := command.ID
 		if observationID == "" {
 			observationID = newID("obs")
@@ -97,7 +107,7 @@ func (s *Service) ValidateObservationBatch(ctx context.Context, id string, comma
 }
 
 func (s *Service) RecordObservationBatch(ctx context.Context, id, key string, command RecordObservationBatchCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventObservationBatchRecorded, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		input, issues := batchDomainInput(command, true)
 		issues = mergeBatchIssues(issues, a.ValidateObservationBatch(input))
 		if len(issues) > 0 {
@@ -171,7 +181,7 @@ func batchDomainInput(command RecordObservationBatchCommand, generateIDs bool) (
 }
 
 func (s *Service) RegisterDeviation(ctx context.Context, id, key string, command RegisterDeviationCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventDeviationRegistered, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		deviationID := command.ID
 		if deviationID == "" {
 			deviationID = newID("dev")
@@ -182,14 +192,14 @@ func (s *Service) RegisterDeviation(ctx context.Context, id, key string, command
 }
 
 func (s *Service) CloseDeviation(ctx context.Context, id, key string, command CloseDeviationCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventDeviationClosed, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		event, err := a.CloseDeviation(command.DeviationID, s.clock.Now())
 		return event, "", err
 	})
 }
 
 func (s *Service) Calculate(ctx context.Context, id, key string, command CalculateCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventMetricsCalculated, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		if a.Assessment.Status != domain.StatusObserving && a.Assessment.Status != domain.StatusReturned {
 			return domain.Event{}, "", domain.State("observing 或 returned", a.Assessment.Status)
 		}
@@ -211,7 +221,7 @@ func (s *Service) ReturnReview(ctx context.Context, id, key string, value any) (
 			return store.Receipt{}, domain.Invalid("复核退回命令类型无效", nil)
 		}
 	}
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventReviewReturned, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		items := make([]domain.ReviewItemInput, 0, len(command.Items))
 		for _, item := range command.Items {
 			itemID := item.ID
@@ -226,28 +236,28 @@ func (s *Service) ReturnReview(ctx context.Context, id, key string, value any) (
 }
 
 func (s *Service) ResolveReviewItem(ctx context.Context, id, key string, command ResolveReviewItemCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventReviewItemResolved, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		event, err := a.ResolveReviewItem(command.ItemID, command.CompletionStatement, s.clock.Now())
 		return event, "", err
 	})
 }
 
 func (s *Service) ResubmitReview(ctx context.Context, id, key string, command ResubmitReviewCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventReviewResubmitted, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		event, err := a.ResubmitReview(command.SubmittedBy, s.clock.Now())
 		return event, "", err
 	})
 }
 
 func (s *Service) ApproveReview(ctx context.Context, id, key string, command ReviewCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventReviewApproved, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		event, err := a.ApproveReview(command.Reviewer, command.Reason, s.clock.Now())
 		return event, "", err
 	})
 }
 
 func (s *Service) Seal(ctx context.Context, id, key string, command SealCommand) (store.Receipt, error) {
-	return s.change(ctx, id, key, command.ExpectedVersion, func(a *domain.Aggregate) (domain.Event, string, error) {
+	return s.change(ctx, id, key, command.ExpectedVersion, domain.EventCertificateSealed, commandDigest(command), func(a *domain.Aggregate) (domain.Event, string, error) {
 		chain, err := s.repository.ChainDigest(ctx, id)
 		if err != nil {
 			return domain.Event{}, "", err
@@ -258,15 +268,19 @@ func (s *Service) Seal(ctx context.Context, id, key string, command SealCommand)
 	})
 }
 
-func (s *Service) change(ctx context.Context, id, key string, expected int64, fn mutation) (store.Receipt, error) {
+func (s *Service) change(ctx context.Context, id, key string, expected int64, eventType, payloadDigest string, fn mutation) (store.Receipt, error) {
 	if strings.TrimSpace(key) == "" {
 		return store.Receipt{}, domain.Invalid("Idempotency-Key 不能为空", nil)
 	}
 	if old, ok := s.repository.LookupReceipt(ctx, key); ok {
 		if old.AssessmentID != id {
-			return store.Receipt{}, domain.Invalid("Idempotency-Key 已用于其他评定", map[string]string{"idempotencyKey": key})
+			return store.Receipt{}, domain.IdempotencyConflict(key, old.EventType, eventType)
 		}
-		return old, nil
+		if replay, err := replayReceipt(old, eventType, payloadDigest); err != nil {
+			return store.Receipt{}, err
+		} else {
+			return replay, nil
+		}
 	}
 	aggregate, err := s.repository.Load(ctx, id)
 	if err != nil {
@@ -279,7 +293,23 @@ func (s *Service) change(ctx context.Context, id, key string, expected int64, fn
 	if err != nil {
 		return store.Receipt{}, err
 	}
-	return s.repository.Append(ctx, id, expected, key, event, certificateNo)
+	return s.repository.AppendCommand(ctx, id, expected, key, payloadDigest, event, certificateNo)
+}
+
+func replayReceipt(old store.Receipt, eventType, payloadDigest string) (store.Receipt, error) {
+	if old.EventType != eventType || old.PayloadDigest != payloadDigest {
+		return store.Receipt{}, domain.IdempotencyConflict(old.IdempotencyKey, old.EventType, eventType)
+	}
+	return old, nil
+}
+
+func commandDigest(command any) string {
+	b, err := json.Marshal(command)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
 }
 
 func issuesError(issues []protocol.Issue) error {

@@ -131,7 +131,11 @@ func (l *Ledger) LoadCertificateMaterial(_ context.Context, number string) (Cert
 	return CertificateMaterial{}, &domain.DomainError{Code: domain.CodeIntegrity, Message: "未找到凭据封存事件材料"}
 }
 
-func (l *Ledger) Append(_ context.Context, id string, expected int64, key string, event domain.Event, certificateNo string) (Receipt, error) {
+func (l *Ledger) Append(ctx context.Context, id string, expected int64, key string, event domain.Event, certificateNo string) (Receipt, error) {
+	return l.AppendCommand(ctx, id, expected, key, "", event, certificateNo)
+}
+
+func (l *Ledger) AppendCommand(_ context.Context, id string, expected int64, key, payloadDigest string, event domain.Event, certificateNo string) (Receipt, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {
@@ -169,7 +173,7 @@ func (l *Ledger) Append(_ context.Context, id string, expected int64, key string
 	if err := next.Apply(event); err != nil {
 		return Receipt{}, err
 	}
-	record := LedgerRecord{SchemaVersion: SchemaVersion, AssessmentID: id, Sequence: current + 1, PreviousDigest: l.chains[id], IdempotencyKey: key, CertificateNo: certificateNo, Event: event}
+	record := LedgerRecord{SchemaVersion: SchemaVersion, AssessmentID: id, Sequence: current + 1, PreviousDigest: l.chains[id], IdempotencyKey: key, PayloadDigest: payloadDigest, CertificateNo: certificateNo, Event: event}
 	digest, err := recordDigest(record)
 	if err != nil {
 		return Receipt{}, err
@@ -201,7 +205,7 @@ func (l *Ledger) Append(_ context.Context, id string, expected int64, key string
 }
 
 func receiptFor(record LedgerRecord, aggregate *domain.Aggregate) Receipt {
-	receipt := Receipt{IdempotencyKey: record.IdempotencyKey, AssessmentID: record.AssessmentID, Version: record.Sequence, EventType: record.Event.Type, CertificateNo: record.CertificateNo}
+	receipt := Receipt{IdempotencyKey: record.IdempotencyKey, AssessmentID: record.AssessmentID, Version: record.Sequence, EventType: record.Event.Type, PayloadDigest: record.PayloadDigest, CertificateNo: record.CertificateNo}
 	if record.Event.Type == domain.EventObservationBatchRecorded {
 		var data domain.ObservationBatchRecordedData
 		if json.Unmarshal(record.Event.Data, &data) == nil {

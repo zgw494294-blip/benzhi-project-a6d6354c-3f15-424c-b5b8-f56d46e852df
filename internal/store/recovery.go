@@ -45,7 +45,7 @@ func (l *Ledger) recover() error {
 		if digest != record.Digest {
 			return fmt.Errorf("第 %d 行摘要不匹配", lineNo)
 		}
-		if old, duplicate := l.receipts[record.IdempotencyKey]; duplicate && (old.AssessmentID != record.AssessmentID || old.Version != record.Sequence) {
+		if old, duplicate := l.receipts[record.IdempotencyKey]; duplicate && (old.AssessmentID != record.AssessmentID || old.Version != record.Sequence || old.PayloadDigest != record.PayloadDigest) {
 			return fmt.Errorf("幂等键 %s 被不同事件复用", record.IdempotencyKey)
 		}
 		if !exists {

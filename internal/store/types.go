@@ -12,6 +12,7 @@ type Receipt struct {
 	AssessmentID     string `json:"assessmentId"`
 	Version          int64  `json:"version"`
 	EventType        string `json:"eventType"`
+	PayloadDigest    string `json:"payloadDigest,omitempty"`
 	CertificateNo    string `json:"certificateNo,omitempty"`
 	Replayed         bool   `json:"replayed,omitempty"`
 	SuccessfulGroups int    `json:"successfulGroups"`
@@ -29,6 +30,7 @@ type CertificateMaterial struct {
 type Repository interface {
 	Load(context.Context, string) (*domain.Aggregate, error)
 	Append(context.Context, string, int64, string, domain.Event, string) (Receipt, error)
+	AppendCommand(context.Context, string, int64, string, string, domain.Event, string) (Receipt, error)
 	LookupReceipt(context.Context, string) (Receipt, bool)
 	ChainDigest(context.Context, string) (string, error)
 	FindCertificate(context.Context, string) (domain.QualificationCertificate, error)
@@ -45,6 +47,7 @@ type LedgerRecord struct {
 	PreviousDigest string       `json:"previousDigest"`
 	Digest         string       `json:"digest"`
 	IdempotencyKey string       `json:"idempotencyKey"`
+	PayloadDigest  string       `json:"payloadDigest,omitempty"`
 	CertificateNo  string       `json:"certificateNo,omitempty"`
 	Event          domain.Event `json:"event"`
 }

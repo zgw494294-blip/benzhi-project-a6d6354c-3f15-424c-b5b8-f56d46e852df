@@ -32,7 +32,7 @@ func writeError(w http.ResponseWriter, err error) {
 			status = http.StatusNotFound
 		case domain.CodeConflict:
 			status = http.StatusConflict
-		case domain.CodeState, domain.CodeAlreadySealed, domain.CodeReviewItemsOpen, domain.CodeMetricsStale, domain.CodeDeviationOpen, domain.CodeRuleBlocked:
+		case domain.CodeState, domain.CodeAlreadySealed, domain.CodeReviewItemsOpen, domain.CodeMetricsStale, domain.CodeDeviationOpen, domain.CodeRuleBlocked, domain.CodeIdempotencyConflict:
 			status = http.StatusConflict
 		case domain.CodeIntegrity:
 			status = http.StatusInternalServerError
