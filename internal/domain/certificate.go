@@ -189,32 +189,79 @@ func (a *Aggregate) reviewItemEvidenceChanged(item ReviewItem) bool {
 		EvidenceDeviation:   {EventDeviationRegistered: true, EventDeviationClosed: true},
 		EvidenceRules:       {EventMetricsCalculated: true},
 	}
+	wanted := map[string]bool{}
+	for _, id := range item.ReplicateIDs {
+		wanted[id] = true
+	}
 	for _, entry := range a.Audit {
 		if entry.Version <= item.ReturnedVersion || !allowed[item.EvidenceArea][entry.Type] {
 			continue
 		}
-		if len(item.ReplicateIDs) == 0 || entry.Type == EventMetricsCalculated {
+		// 指标与方案为整体证据，无需按重复组限定；事项未限定重复组时也不必逐组比对。
+		if entry.Type == EventMetricsCalculated || len(item.ReplicateIDs) == 0 {
 			return true
 		}
-		if entry.Type == EventDeviationClosed {
-			var closed DeviationClosedData
-			if json.Unmarshal(entry.Data, &closed) == nil {
-				deviation := a.Deviations[closed.ID]
-				groups := append(append([]string(nil), deviation.AffectedReplicateIDs...), deviation.RetestReplicateIDs...)
-				for _, wanted := range item.ReplicateIDs {
-					for _, group := range groups {
-						if wanted == group {
-							return true
-						}
-					}
-				}
-			}
+		if a.eventTouchesReplicate(entry, wanted) {
+			return true
 		}
-		data := string(entry.Data)
-		for _, id := range item.ReplicateIDs {
-			if strings.Contains(data, `"`+id+`"`) {
+	}
+	return false
+}
+
+// eventTouchesReplicate reports whether the given audit entry genuinely relates
+// to any of the target replicate IDs. It decodes the structured event payload
+// rather than performing raw substring matching, so an unrelated observation
+// whose recordedBy or other free-text field merely contains the same identifier
+// cannot be mistaken for real evidence tied to the target replicate.
+func (a *Aggregate) eventTouchesReplicate(entry AuditEntry, wanted map[string]bool) bool {
+	switch entry.Type {
+	case EventObservationRecorded:
+		var data ObservationRecordedData
+		if err := json.Unmarshal(entry.Data, &data); err != nil {
+			return false
+		}
+		return wanted[data.Observation.ReplicateID]
+	case EventObservationBatchRecorded:
+		var data ObservationBatchRecordedData
+		if err := json.Unmarshal(entry.Data, &data); err != nil {
+			return false
+		}
+		for _, observation := range data.Observations {
+			if wanted[observation.ReplicateID] {
 				return true
 			}
+		}
+		return false
+	case EventDeviationRegistered:
+		var data DeviationRegisteredData
+		if err := json.Unmarshal(entry.Data, &data); err != nil {
+			return false
+		}
+		return deviationTouchesReplicates(data.Deviation, wanted)
+	case EventDeviationClosed:
+		var closed DeviationClosedData
+		if err := json.Unmarshal(entry.Data, &closed); err != nil {
+			return false
+		}
+		// 闭环事件本身只携带异常编号，受影响与复测重复组需要从当前异常快照取回。
+		if deviation, ok := a.Deviations[closed.ID]; ok {
+			return deviationTouchesReplicates(deviation, wanted)
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func deviationTouchesReplicates(deviation Deviation, wanted map[string]bool) bool {
+	for _, id := range deviation.AffectedReplicateIDs {
+		if wanted[id] {
+			return true
+		}
+	}
+	for _, id := range deviation.RetestReplicateIDs {
+		if wanted[id] {
+			return true
 		}
 	}
 	return false
