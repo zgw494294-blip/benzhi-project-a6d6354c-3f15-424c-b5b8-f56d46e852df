@@ -52,7 +52,7 @@ func (s *Service) Get(ctx context.Context, id string) (AssessmentView, error) {
 		return AssessmentView{}, err
 	}
 	if view, ok := s.loadCachedView(id, a.Assessment.Version); ok {
-		return s.attachCertificateVerification(ctx, a, view)
+		return s.attachCertificateVerification(ctx, a, cloneView(view))
 	}
 	reviewItems := a.SortedReviewItems()
 	for index := range reviewItems {
@@ -67,7 +67,23 @@ func (s *Service) Get(ctx context.Context, id string) (AssessmentView, error) {
 	}
 	view := AssessmentView{Assessment: a.Assessment, Protocol: a.Protocol, Replicates: a.SortedReplicates(), Observations: a.Observations, Deviations: deviations, Metrics: a.Metrics, Reviews: append([]domain.Review(nil), a.Reviews...), Certificate: a.Certificate, Audit: append([]domain.AuditEntry(nil), a.Audit...), Checklist: BuildChecklist(a), Progress: s.engine.Progress(a), SampleBoundary: a.SampleBoundary(), ReviewItems: reviewItems}
 	s.storeCachedView(id, a.Assessment.Version, view)
-	return s.attachCertificateVerification(ctx, a, view)
+	return s.attachCertificateVerification(ctx, a, cloneView(view))
+}
+
+// cloneView returns an isolated deep copy of view so that callers mutating a
+// returned AssessmentView (maps, slices, pointers) cannot pollute the cached
+// entry or any subsequent query response. The JSON round-trip mirrors
+// domain.Aggregate.Clone and handles every reference-type field uniformly.
+func cloneView(view AssessmentView) AssessmentView {
+	data, err := json.Marshal(view)
+	if err != nil {
+		return view
+	}
+	var cloned AssessmentView
+	if err := json.Unmarshal(data, &cloned); err != nil {
+		return view
+	}
+	return cloned
 }
 
 func (s *Service) loadCachedView(id string, version int64) (AssessmentView, bool) {
