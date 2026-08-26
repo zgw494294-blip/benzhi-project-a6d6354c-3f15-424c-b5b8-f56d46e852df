@@ -26,6 +26,11 @@ type AssessmentView struct {
 	CertificateVerification *CertificateVerification         `json:"certificateVerification,omitempty"`
 }
 
+type cachedAssessmentView struct {
+	version int64
+	view    AssessmentView
+}
+
 type CertificateVerificationItem struct {
 	Code    string `json:"code"`
 	Passed  bool   `json:"passed"`
@@ -46,6 +51,9 @@ func (s *Service) Get(ctx context.Context, id string) (AssessmentView, error) {
 	if err != nil {
 		return AssessmentView{}, err
 	}
+	if view, ok := s.loadCachedView(id, a.Assessment.Version); ok {
+		return s.attachCertificateVerification(ctx, a, view)
+	}
 	reviewItems := a.SortedReviewItems()
 	for index := range reviewItems {
 		reviewItems[index].CanResolve, reviewItems[index].ResolveBlocker = a.ReviewItemReadiness(reviewItems[index])
@@ -58,6 +66,27 @@ func (s *Service) Get(ctx context.Context, id string) (AssessmentView, error) {
 		}
 	}
 	view := AssessmentView{Assessment: a.Assessment, Protocol: a.Protocol, Replicates: a.SortedReplicates(), Observations: a.Observations, Deviations: deviations, Metrics: a.Metrics, Reviews: append([]domain.Review(nil), a.Reviews...), Certificate: a.Certificate, Audit: append([]domain.AuditEntry(nil), a.Audit...), Checklist: BuildChecklist(a), Progress: s.engine.Progress(a), SampleBoundary: a.SampleBoundary(), ReviewItems: reviewItems}
+	s.storeCachedView(id, a.Assessment.Version, view)
+	return s.attachCertificateVerification(ctx, a, view)
+}
+
+func (s *Service) loadCachedView(id string, version int64) (AssessmentView, bool) {
+	s.viewMu.Lock()
+	defer s.viewMu.Unlock()
+	entry, ok := s.views[id]
+	if !ok || entry.version != version {
+		return AssessmentView{}, false
+	}
+	return entry.view, true
+}
+
+func (s *Service) storeCachedView(id string, version int64, view AssessmentView) {
+	s.viewMu.Lock()
+	defer s.viewMu.Unlock()
+	s.views[id] = cachedAssessmentView{version: version, view: view}
+}
+
+func (s *Service) attachCertificateVerification(ctx context.Context, a *domain.Aggregate, view AssessmentView) (AssessmentView, error) {
 	if a.Certificate != nil {
 		verification, verifyErr := s.VerifyCertificate(ctx, a.Certificate.CertificateNo)
 		if verifyErr != nil {
