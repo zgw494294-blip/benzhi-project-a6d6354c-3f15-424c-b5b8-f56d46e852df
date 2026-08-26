@@ -1,27 +1,24 @@
 package domain
 
-import "encoding/json"
-
 func (a *Aggregate) Clone() (*Aggregate, error) {
-	b, err := json.Marshal(a)
-	if err != nil {
-		return nil, err
+	result := *a
+	result.Replicates = make(map[string]Replicate, len(a.Replicates))
+	for id, replicate := range a.Replicates {
+		result.Replicates[id] = replicate
 	}
-	var result Aggregate
-	if err := json.Unmarshal(b, &result); err != nil {
-		return nil, err
+	result.Observations = make(map[string][]Observation, len(a.Observations))
+	for id, observations := range a.Observations {
+		result.Observations[id] = observations
 	}
-	if result.Replicates == nil {
-		result.Replicates = map[string]Replicate{}
+	result.Deviations = make(map[string]Deviation, len(a.Deviations))
+	for id, deviation := range a.Deviations {
+		result.Deviations[id] = deviation
 	}
-	if result.Observations == nil {
-		result.Observations = map[string][]Observation{}
+	result.ReviewItems = make(map[string]ReviewItem, len(a.ReviewItems))
+	for id, item := range a.ReviewItems {
+		result.ReviewItems[id] = item
 	}
-	if result.Deviations == nil {
-		result.Deviations = map[string]Deviation{}
-	}
-	if result.ReviewItems == nil {
-		result.ReviewItems = map[string]ReviewItem{}
-	}
+	result.Reviews = append([]Review(nil), a.Reviews...)
+	result.Audit = append([]AuditEntry(nil), a.Audit...)
 	return &result, nil
 }
