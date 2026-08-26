@@ -187,6 +187,7 @@ func (l *Ledger) Append(_ context.Context, id string, expected int64, key string
 		return Receipt{}, fmt.Errorf("同步事件账本: %w", err)
 	}
 	receipt := receiptFor(record, next)
+	previousCertificateAssessment, hadCertificate := l.certificates[certificateNo]
 	l.aggregates[id] = next
 	l.chains[id] = digest
 	l.receipts[key] = receipt
@@ -195,6 +196,22 @@ func (l *Ledger) Append(_ context.Context, id string, expected int64, key string
 		l.certificates[certificateNo] = id
 	}
 	if err := l.writeSnapshotLocked(); err != nil {
+		if exists {
+			l.aggregates[id] = aggregate
+			l.chains[id] = record.PreviousDigest
+		} else {
+			delete(l.aggregates, id)
+			delete(l.chains, id)
+		}
+		delete(l.receipts, key)
+		l.records[id] = l.records[id][:len(l.records[id])-1]
+		if certificateNo != "" {
+			if hadCertificate {
+				l.certificates[certificateNo] = previousCertificateAssessment
+			} else {
+				delete(l.certificates, certificateNo)
+			}
+		}
 		return Receipt{}, err
 	}
 	return receipt, nil
