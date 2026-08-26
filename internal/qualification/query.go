@@ -69,6 +69,11 @@ func (s *Service) Get(ctx context.Context, id string) (AssessmentView, error) {
 }
 
 func (s *Service) VerifyCertificate(ctx context.Context, number string) (CertificateVerification, error) {
+	if s.verification != nil && s.verificationCertificateNo == number {
+		cached := *s.verification
+		cached.Items = append([]CertificateVerificationItem(nil), s.verification.Items...)
+		return cached, nil
+	}
 	materialRepository, ok := s.repository.(store.CertificateMaterialRepository)
 	if !ok {
 		return CertificateVerification{}, &domain.DomainError{Code: domain.CodeIntegrity, Message: "存储未提供凭据历史材料读取能力"}
@@ -104,7 +109,12 @@ func (s *Service) VerifyCertificate(ctx context.Context, number string) (Certifi
 	if !valid {
 		message = "资格凭据一致性校验失败，请查看失败项"
 	}
-	return CertificateVerification{Certificate: certificate, Valid: valid, Message: message, Algorithm: "SHA-256/canonical-json", CheckedAt: s.clock.Now(), Items: items}, nil
+	result := CertificateVerification{Certificate: certificate, Valid: valid, Message: message, Algorithm: "SHA-256/canonical-json", CheckedAt: s.clock.Now(), Items: items}
+	cached := result
+	cached.Items = append([]CertificateVerificationItem(nil), result.Items...)
+	s.verificationCertificateNo = number
+	s.verification = &cached
+	return result, nil
 }
 
 func verificationItem(code string, passed bool, success, failure string) CertificateVerificationItem {

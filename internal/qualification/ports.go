@@ -12,9 +12,11 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	repository store.Repository
-	engine     *protocol.Engine
-	clock      Clock
+	repository                store.Repository
+	engine                    *protocol.Engine
+	clock                     Clock
+	verificationCertificateNo string
+	verification              *CertificateVerification
 }
 
 func NewService(repository store.Repository, engine *protocol.Engine) *Service {
