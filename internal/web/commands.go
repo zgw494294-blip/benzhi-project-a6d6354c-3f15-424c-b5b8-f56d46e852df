@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"seed-vigor-gate/internal/qualification"
 	"seed-vigor-gate/internal/store"
@@ -36,7 +37,9 @@ func (h *Handler) CreateAssessmentHandler(w http.ResponseWriter, r *http.Request
 		writeInputError(w, err)
 		return
 	}
-	h.finishCommand(w, r, command.ID, http.StatusCreated, func(key string) (store.Receipt, error) { return h.service.Create(r.Context(), key, command) })
+	h.finishCommand(w, r, command.ID, http.StatusCreated, func(key string) (store.Receipt, error) {
+		return h.service.Create(context.WithoutCancel(r.Context()), key, command)
+	})
 }
 
 func (h *Handler) FreezeProtocolHandler(w http.ResponseWriter, r *http.Request) {
@@ -47,7 +50,7 @@ func (h *Handler) FreezeProtocolHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.finishCommand(w, r, id, http.StatusOK, func(key string) (store.Receipt, error) {
-		return h.service.FreezeProtocol(r.Context(), id, key, command)
+		return h.service.FreezeProtocol(context.WithoutCancel(r.Context()), id, key, command)
 	})
 }
 
@@ -59,7 +62,7 @@ func (h *Handler) PlaceReplicatesHandler(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	h.finishCommand(w, r, id, http.StatusOK, func(key string) (store.Receipt, error) {
-		return h.service.PlaceReplicates(r.Context(), id, key, command)
+		return h.service.PlaceReplicates(context.WithoutCancel(r.Context()), id, key, command)
 	})
 }
 
@@ -70,7 +73,9 @@ func (h *Handler) StartObservationHandler(w http.ResponseWriter, r *http.Request
 		writeInputError(w, err)
 		return
 	}
-	h.finishCommand(w, r, id, http.StatusOK, func(key string) (store.Receipt, error) { return h.service.Start(r.Context(), id, key, command) })
+	h.finishCommand(w, r, id, http.StatusOK, func(key string) (store.Receipt, error) {
+		return h.service.Start(context.WithoutCancel(r.Context()), id, key, command)
+	})
 }
 
 func (h *Handler) RecordObservationHandler(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +116,7 @@ func (h *Handler) RecordObservationHandler(w http.ResponseWriter, r *http.Reques
 	}
 	command := qualification.RecordObservationCommand{Versioned: request.Versioned, ID: request.ID, ReplicateID: request.ReplicateID, DayNo: request.DayNo, NormalGerminated: request.NormalGerminated, AbnormalSeedlings: request.AbnormalSeedlings, HardSeeds: request.HardSeeds, DeadSeeds: request.DeadSeeds, UngerminatedSeeds: request.UngerminatedSeeds, RecordedBy: request.RecordedBy}
 	h.finishCommand(w, r, id, http.StatusOK, func(key string) (store.Receipt, error) {
-		return h.service.RecordObservation(r.Context(), id, key, command)
+		return h.service.RecordObservation(context.WithoutCancel(r.Context()), id, key, command)
 	})
 }
 
@@ -123,7 +128,7 @@ func (h *Handler) RegisterDeviationHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	h.finishCommand(w, r, id, http.StatusOK, func(key string) (store.Receipt, error) {
-		return h.service.RegisterDeviation(r.Context(), id, key, command)
+		return h.service.RegisterDeviation(context.WithoutCancel(r.Context()), id, key, command)
 	})
 }
 
