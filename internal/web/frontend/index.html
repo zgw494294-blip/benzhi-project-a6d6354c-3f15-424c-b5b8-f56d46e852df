@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>种子发芽资格评定工作台</title>
+  <link rel="stylesheet" href="/assets/app.css">
+</head>
+<body>
+  <header class="hero">
+    <div>
+      <p class="eyebrow">SEED VIGOR GATE · LOCAL EVIDENCE</p>
+      <h1>种子发芽资格评定工作台</h1>
+      <p>从方案冻结到资格凭据，一条本地、可复核、可校验的证据链。</p>
+    </div>
+    <div class="identity">
+      <span id="status-dot"></span>
+      <div><small>当前评定</small><strong id="identity">尚未创建</strong></div>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <h2>流程导航</h2>
+      <ol id="steps">
+        <li data-status="draft">01 批次建档</li>
+        <li data-status="protocol_frozen">02 冻结方案</li>
+        <li data-status="observing">03 布置与观测</li>
+        <li data-status="pending_review">04 规则判定</li>
+        <li data-status="approved">05 复核放行</li>
+        <li data-status="sealed">06 凭据封存</li>
+      </ol>
+      <form id="load-form" class="compact">
+        <label>恢复已有评定<input id="load-id" placeholder="评定 ID"></label>
+        <button>载入</button>
+      </form>
+      <div class="version">聚合版本 <b id="version">0</b></div>
+      <div id="checklist" class="side-checklist"></div>
+    </aside>
+
+    <section class="workspace">
+      <div id="notice" role="status" aria-live="polite"></div>
+
+      <details open>
+        <summary><span>01</span>登记种子批次与样本边界</summary>
+        <form id="create-form" class="grid two">
+          <label>种子批次标识<input name="lotCode" value="LOT-2026-001" required></label>
+          <label>物种<input name="speciesName" value="水稻" required></label>
+          <label>收获年份<input name="harvestYear" type="number" value="2025" required></label>
+          <label>送检数量<input name="submittedQuantity" type="number" value="400" min="1" required></label>
+          <label class="span-2">预处理边界<textarea name="pretreatmentBoundary" required>清水浸种 24 小时；不得使用化学促芽剂</textarea></label>
+          <button class="primary span-2">创建评定</button>
+        </form>
+      </details>
+
+      <details open>
+        <summary><span>02</span>编制并冻结试验方案</summary>
+        <form id="protocol-form" class="grid three">
+          <label>重复组数量<input name="replicateCount" type="number" value="4"></label>
+          <label>每组粒数<input name="seedsPerReplicate" type="number" value="50"></label>
+          <label>观察日程<input name="observationDays" value="3,5,7"></label>
+          <label>温度下限 °C<input name="temperatureMinC" type="number" step="0.1" value="20"></label>
+          <label>温度上限 °C<input name="temperatureMaxC" type="number" step="0.1" value="30"></label>
+          <label>终止日<input name="terminationDay" type="number" value="7"></label>
+          <label>最低发芽率 %<input name="minimumGerminationRate" type="number" step="0.1" value="80"></label>
+          <label>最大离散度<input name="maximumDispersion" type="number" step="0.1" value="10"></label>
+          <button class="primary">冻结不可覆盖快照</button>
+        </form>
+      </details>
+
+      <details open>
+        <summary><span>03</span>布置重复组与逐日观测</summary>
+        <div class="actions">
+          <button id="place-btn">按冻结方案自动布置原始组</button>
+          <button id="start-btn">核验并开始观测</button>
+        </div>
+        <form id="observation-form" class="grid four">
+          <label>重复组<select name="replicateId" id="replicate-select"></select></label>
+          <label>观察日<input name="dayNo" type="number" value="3"></label>
+          <label>记录人<input name="recordedBy" value="技术员-01"></label>
+          <span></span>
+          <label>正常发芽<input name="normalGerminated" type="number" value="42"></label>
+          <label>异常苗<input name="abnormalSeedlings" type="number" value="2"></label>
+          <label>硬实粒<input name="hardSeeds" type="number" value="1"></label>
+          <label>死亡粒<input name="deadSeeds" type="number" value="1"></label>
+          <label>未发芽粒<input name="ungerminatedSeeds" type="number" value="4"></label>
+          <button class="primary">提交观测 / 修订</button>
+        </form>
+        <section class="inline-panel">
+          <h3>同一观察日批量录入</h3>
+          <p class="hint">按冻结日程一次提交全部有效组；系统先整批预检，任一行失败均不会追加观测。</p>
+          <form id="batch-observation-form">
+            <div class="grid two">
+              <label>观察日<select name="dayNo" id="batch-day"></select></label>
+              <label>统一记录人<input name="recordedBy" value="技术员-01" required></label>
+            </div>
+            <div class="table-wrap inner"><table><thead><tr><th>组别</th><th>正常发芽</th><th>异常苗</th><th>硬实粒</th><th>死亡粒</th><th>未发芽粒</th></tr></thead><tbody id="batch-observation-rows"></tbody></table></div>
+            <button class="primary">整批预检并提交</button>
+          </form>
+        </section>
+        <div class="table-wrap"><table><thead><tr><th>组别</th><th>类型</th><th>状态</th><th>观测轨迹</th></tr></thead><tbody id="replicate-table"></tbody></table></div>
+      </details>
+
+      <details>
+        <summary><span>04</span>异常登记与定向复测</summary>
+        <form id="deviation-form" class="grid two">
+          <label>异常类别<select name="category"><option value="contamination">污染</option><option value="temperature_interruption">温控中断</option><option value="count_invalid">计数失效</option></select></label>
+          <label>受影响重复组（可多选）<select name="affectedReplicateIds" id="affected-select" multiple size="4"></select></label>
+          <label>异常描述<input name="description" value="局部培养皿出现污染"></label>
+          <label>处置决定<input name="disposition" value="作废原组并定向复测"></label>
+          <button>登记异常并创建复测组</button>
+        </form>
+        <div id="sample-boundary" class="hint"></div>
+        <div id="deviations" class="cards"></div>
+      </details>
+
+      <details open>
+        <summary><span>05</span>自动判定与人工复核</summary>
+        <div class="actions"><button id="calculate-btn" class="primary">计算资格建议</button></div>
+        <div id="metrics" class="metric-grid empty">完成终止日观测后生成指标与规则明细</div>
+        <div id="progress" class="table-wrap"></div>
+        <form id="review-form" class="grid two">
+          <label>复核员<input name="reviewer" value="复核员-01"></label>
+          <label>理由 / 意见<input name="reason" value="证据完整，规则明细无阻断"></label>
+          <label>退回证据区域<select name="evidenceArea"><option value="observation">观测</option><option value="deviation">异常</option><option value="rules">规则明细</option><option value="protocol">方案</option></select></label>
+          <label>关联重复组（可多选）<select name="reviewReplicateIds" id="review-replicates" multiple size="3"></select></label>
+          <label>事项问题说明<input name="problem" value="指定证据尚不完整"></label>
+          <label>补充要求<input name="requirement" value="补齐证据并重新计算"></label>
+          <button data-review="return">退回补充</button>
+          <button data-review="approve" class="primary">批准结论</button>
+        </form>
+        <div id="review-items" class="cards"></div>
+        <form id="resubmit-form" class="verify-row"><input name="submittedBy" value="技术员-01" aria-label="再次送审人"><button>再次送审</button></form>
+      </details>
+
+      <details open>
+        <summary><span>06</span>封存与校验资格凭据</summary>
+        <div class="actions"><button id="seal-btn" class="primary">一次性封存凭据</button></div>
+        <form id="verify-form" class="verify-row">
+          <input id="certificate-number" placeholder="输入凭据编号">
+          <button>本地校验</button>
+        </form>
+        <div id="certificate" class="certificate empty">尚未生成凭据</div>
+      </details>
+
+      <details>
+        <summary><span>∑</span>审计事件链</summary>
+        <div id="audit" class="timeline"></div>
+      </details>
+    </section>
+  </main>
+  <script src="/assets/app.js" defer></script>
+</body>
+</html>
