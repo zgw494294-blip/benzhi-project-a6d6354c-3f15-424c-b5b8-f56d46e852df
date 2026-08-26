@@ -1,6 +1,6 @@
 # BENZHI_README
 
-基于 Go 实现的seed-vigor-gate Web 项目，一款后端服务，用于支持seed-vigor-gate的核心业务流程。
+基于 Go 实现的种子发芽资格评定 Web 项目，一款后端服务，用于管理种子发芽试验、异常复测、规则判定和保藏资格放行。
 
 ## 项目说明
 - 项目：benzhi-project-a6d6354c-3f15-424c-b5b8-f56d46e852df
