@@ -69,6 +69,32 @@ func (s *Service) Get(ctx context.Context, id string) (AssessmentView, error) {
 }
 
 func (s *Service) VerifyCertificate(ctx context.Context, number string) (CertificateVerification, error) {
+	s.verificationMu.Lock()
+	if s.verificationFlights == nil {
+		s.verificationFlights = make(map[string]*verificationFlight)
+	}
+	if flight, ok := s.verificationFlights[number]; ok {
+		s.verificationMu.Unlock()
+		select {
+		case <-ctx.Done():
+			return CertificateVerification{}, ctx.Err()
+		case <-flight.done:
+			return flight.result, flight.err
+		}
+	}
+	flight := &verificationFlight{done: make(chan struct{})}
+	s.verificationFlights[number] = flight
+	s.verificationMu.Unlock()
+
+	flight.result, flight.err = s.verifyCertificate(ctx, number)
+	s.verificationMu.Lock()
+	delete(s.verificationFlights, number)
+	close(flight.done)
+	s.verificationMu.Unlock()
+	return flight.result, flight.err
+}
+
+func (s *Service) verifyCertificate(ctx context.Context, number string) (CertificateVerification, error) {
 	materialRepository, ok := s.repository.(store.CertificateMaterialRepository)
 	if !ok {
 		return CertificateVerification{}, &domain.DomainError{Code: domain.CodeIntegrity, Message: "存储未提供凭据历史材料读取能力"}

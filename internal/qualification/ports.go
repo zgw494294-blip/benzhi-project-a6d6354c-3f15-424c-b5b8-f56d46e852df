@@ -3,6 +3,7 @@ package qualification
 import (
 	"seed-vigor-gate/internal/protocol"
 	"seed-vigor-gate/internal/store"
+	"sync"
 	"time"
 )
 
@@ -12,9 +13,17 @@ type systemClock struct{}
 func (systemClock) Now() time.Time { return time.Now().UTC() }
 
 type Service struct {
-	repository store.Repository
-	engine     *protocol.Engine
-	clock      Clock
+	repository          store.Repository
+	engine              *protocol.Engine
+	clock               Clock
+	verificationMu      sync.Mutex
+	verificationFlights map[string]*verificationFlight
+}
+
+type verificationFlight struct {
+	done   chan struct{}
+	result CertificateVerification
+	err    error
 }
 
 func NewService(repository store.Repository, engine *protocol.Engine) *Service {
